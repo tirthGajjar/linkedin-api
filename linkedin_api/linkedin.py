@@ -5,22 +5,21 @@ Provides linkedin api-related code
 import json
 import logging
 import random
-import uuid
 import re
+import uuid
 from operator import itemgetter
 from time import sleep
-from urllib.parse import urlencode, quote
-from typing import Dict, Union, Optional, List, Literal
+from typing import Dict, List, Literal, Optional, Union
+from urllib.parse import quote, urlencode
 
 from linkedin_api.client import Client
 from linkedin_api.utils.helpers import (
+    generate_trackingId_as_charString,
     get_id_from_urn,
-    get_urn_from_raw_update,
     get_list_posts_sorted_without_promoted,
+    get_urn_from_raw_update,
     parse_list_raw_posts,
     parse_list_raw_urns,
-    generate_trackingId,
-    generate_trackingId_as_charString,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,9 +46,7 @@ class Linkedin(object):
     _MAX_POST_COUNT = 100  # max seems to be 100 posts per page
     _MAX_UPDATE_COUNT = 100  # max seems to be 100
     _MAX_SEARCH_COUNT = 49  # max seems to be 49, and min seems to be 2
-    _MAX_REPEATED_REQUESTS = (
-        200  # VERY conservative max requests count to avoid rate-limit
-    )
+    _MAX_REPEATED_REQUESTS = 200  # VERY conservative max requests count to avoid rate-limit
 
     def __init__(
         self,
@@ -132,9 +129,7 @@ class Linkedin(object):
             profile_urn = f"urn:li:fsd_profile:{urn_id}"
         else:
             profile = self.get_profile(public_id=public_id)
-            profile_urn = profile["profile_urn"].replace(
-                "fs_miniProfile", "fsd_profile"
-            )
+            profile_urn = profile["profile_urn"].replace("fs_miniProfile", "fsd_profile")
         url_params["profileUrn"] = profile_urn
         url = f"/identity/profileUpdatesV2"
         res = self._fetch(url, params=url_params)
@@ -142,11 +137,7 @@ class Linkedin(object):
         if data and "status" in data and data["status"] != 200:
             self.logger.info("request failed: {}".format(data["message"]))
             return [{}]
-        while (
-            data
-            and "paginationToken" in data["metadata"]
-            and data["metadata"]["paginationToken"] != ""
-        ):
+        while data and "paginationToken" in data["metadata"] and data["metadata"]["paginationToken"] != "":
             if len(data["elements"]) >= post_count:
                 break
             pagination_token = data["metadata"]["paginationToken"]
@@ -182,11 +173,7 @@ class Linkedin(object):
         if data and "status" in data and data["status"] != 200:
             self.logger.info("request failed: {}".format(data["status"]))
             return [{}]
-        while (
-            data
-            and "paginationToken" in data["metadata"]
-            and data["metadata"]["paginationToken"] != ""
-        ):
+        while data and "paginationToken" in data["metadata"] and data["metadata"]["paginationToken"] != "":
             if len(data["elements"]) >= comment_count:
                 break
             pagination_token = data["metadata"]["paginationToken"]
@@ -242,11 +229,7 @@ class Linkedin(object):
             }
             default_params.update(params)
 
-            keywords = (
-                f"keywords:{default_params['keywords']},"
-                if "keywords" in default_params
-                else ""
-            )
+            keywords = f"keywords:{default_params['keywords']}," if "keywords" in default_params else ""
 
             res = self._fetch(
                 f"/graphql?variables=(start:{default_params['start']},origin:{default_params['origin']},"
@@ -264,34 +247,22 @@ class Linkedin(object):
             if not data_clusters:
                 return []
 
-            if (
-                not data_clusters.get("_type", [])
-                == "com.linkedin.restli.common.CollectionResponse"
-            ):
+            if not data_clusters.get("_type", []) == "com.linkedin.restli.common.CollectionResponse":
                 return []
 
             new_elements = []
             for it in data_clusters.get("elements", []):
-                if (
-                    not it.get("_type", [])
-                    == "com.linkedin.voyager.dash.search.SearchClusterViewModel"
-                ):
+                if not it.get("_type", []) == "com.linkedin.voyager.dash.search.SearchClusterViewModel":
                     continue
 
                 for el in it.get("items", []):
-                    if (
-                        not el.get("_type", [])
-                        == "com.linkedin.voyager.dash.search.SearchItem"
-                    ):
+                    if not el.get("_type", []) == "com.linkedin.voyager.dash.search.SearchItem":
                         continue
 
                     e = el.get("item", {}).get("entityResult", [])
                     if not e:
                         continue
-                    if (
-                        not e.get("_type", [])
-                        == "com.linkedin.voyager.dash.search.EntityResultViewModel"
-                    ):
+                    if not e.get("_type", []) == "com.linkedin.voyager.dash.search.EntityResultViewModel":
                         continue
                     new_elements.append(e)
 
@@ -314,9 +285,7 @@ class Linkedin(object):
         self,
         keywords: Optional[str] = None,
         connection_of: Optional[str] = None,
-        network_depths: Optional[
-            List[Union[Literal["F"], Literal["S"], Literal["O"]]]
-        ] = None,
+        network_depths: Optional[List[Union[Literal["F"], Literal["S"], Literal["O"]]]] = None,
         current_company: Optional[List[str]] = None,
         past_companies: Optional[List[str]] = None,
         nonprofit_interests: Optional[List[str]] = None,
@@ -440,20 +409,13 @@ class Linkedin(object):
         for item in data:
             if (
                 not include_private_profiles
-                and (item.get("entityCustomTrackingInfo") or {}).get(
-                    "memberDistance", None
-                )
-                == "OUT_OF_NETWORK"
+                and (item.get("entityCustomTrackingInfo") or {}).get("memberDistance", None) == "OUT_OF_NETWORK"
             ):
                 continue
             results.append(
                 {
-                    "urn_id": get_id_from_urn(
-                        get_urn_from_raw_update(item.get("entityUrn", None))
-                    ),
-                    "distance": (item.get("entityCustomTrackingInfo") or {}).get(
-                        "memberDistance", None
-                    ),
+                    "urn_id": get_id_from_urn(get_urn_from_raw_update(item.get("entityUrn", None))),
+                    "distance": (item.get("entityCustomTrackingInfo") or {}).get("memberDistance", None),
                     "jobtitle": (item.get("primarySubtitle") or {}).get("text", None),
                     "location": (item.get("secondarySubtitle") or {}).get("text", None),
                     "name": (item.get("title") or {}).get("text", None),
@@ -570,9 +532,7 @@ class Linkedin(object):
         if limit is None:
             limit = -1
 
-        query: Dict[str, Union[str, Dict[str, str]]] = {
-            "origin": "JOB_SEARCH_PAGE_QUERY_EXPANSION"
-        }
+        query: Dict[str, Union[str, Dict[str, str]]] = {"origin": "JOB_SEARCH_PAGE_QUERY_EXPANSION"}
         if keywords:
             query["keywords"] = "KEYWORD_PLACEHOLDER"
         if location_name:
@@ -642,11 +602,7 @@ class Linkedin(object):
             data = res.json()
 
             elements = data.get("included", [])
-            new_data = [
-                i
-                for i in elements
-                if i["$type"] == "com.linkedin.voyager.dash.jobs.JobPosting"
-            ]
+            new_data = [i for i in elements if i["$type"] == "com.linkedin.voyager.dash.jobs.JobPosting"]
             # break the loop if we're done searching or no results returned
             if not new_data:
                 break
@@ -663,9 +619,7 @@ class Linkedin(object):
 
         return results
 
-    def get_profile_contact_info(
-        self, public_id: Optional[str] = None, urn_id: Optional[str] = None
-    ) -> Dict:
+    def get_profile_contact_info(self, public_id: Optional[str] = None, urn_id: Optional[str] = None) -> Dict:
         """Fetch contact information for a given LinkedIn profile. Pass a [public_id] or a [urn_id].
 
         :param public_id: LinkedIn public ID for a profile
@@ -676,9 +630,7 @@ class Linkedin(object):
         :return: Contact data
         :rtype: dict
         """
-        res = self._fetch(
-            f"/identity/profiles/{public_id or urn_id}/profileContactInfo"
-        )
+        res = self._fetch(f"/identity/profiles/{public_id or urn_id}/profileContactInfo")
         data = res.json()
 
         contact_info = {
@@ -693,13 +645,9 @@ class Linkedin(object):
         websites = data.get("websites", [])
         for item in websites:
             if "com.linkedin.voyager.identity.profile.StandardWebsite" in item["type"]:
-                item["label"] = item["type"][
-                    "com.linkedin.voyager.identity.profile.StandardWebsite"
-                ]["category"]
+                item["label"] = item["type"]["com.linkedin.voyager.identity.profile.StandardWebsite"]["category"]
             elif "" in item["type"]:
-                item["label"] = item["type"][
-                    "com.linkedin.voyager.identity.profile.CustomWebsite"
-                ]["label"]
+                item["label"] = item["type"]["com.linkedin.voyager.identity.profile.CustomWebsite"]["label"]
 
             del item["type"]
 
@@ -707,9 +655,7 @@ class Linkedin(object):
 
         return contact_info
 
-    def get_profile_skills(
-        self, public_id: Optional[str] = None, urn_id: Optional[str] = None
-    ) -> List:
+    def get_profile_skills(self, public_id: Optional[str] = None, urn_id: Optional[str] = None) -> List:
         """Fetch the skills listed on a given LinkedIn profile.
 
         :param public_id: LinkedIn public ID for a profile
@@ -722,9 +668,7 @@ class Linkedin(object):
         :rtype: list
         """
         params = {"count": 100, "start": 0}
-        res = self._fetch(
-            f"/identity/profiles/{public_id or urn_id}/skills", params=params
-        )
+        res = self._fetch(f"/identity/profiles/{public_id or urn_id}/skills", params=params)
         data = res.json()
 
         skills = data.get("elements", [])
@@ -733,9 +677,7 @@ class Linkedin(object):
 
         return skills
 
-    def get_profile(
-        self, public_id: Optional[str] = None, urn_id: Optional[str] = None
-    ) -> Dict:
+    def get_profile(self, public_id: Optional[str] = None, urn_id: Optional[str] = None) -> Dict:
         """Fetch data for a given LinkedIn profile.
 
         :param public_id: LinkedIn public ID for a profile
@@ -759,17 +701,13 @@ class Linkedin(object):
         profile = data["profile"]
         if "miniProfile" in profile:
             if "picture" in profile["miniProfile"]:
-                profile["displayPictureUrl"] = profile["miniProfile"]["picture"][
-                    "com.linkedin.common.VectorImage"
-                ]["rootUrl"]
+                profile["displayPictureUrl"] = profile["miniProfile"]["picture"]["com.linkedin.common.VectorImage"][
+                    "rootUrl"
+                ]
 
-                images_data = profile["miniProfile"]["picture"][
-                    "com.linkedin.common.VectorImage"
-                ]["artifacts"]
+                images_data = profile["miniProfile"]["picture"]["com.linkedin.common.VectorImage"]["artifacts"]
                 for img in images_data:
-                    w, h, url_segment = itemgetter(
-                        "width", "height", "fileIdentifyingUrlPathSegment"
-                    )(img)
+                    w, h, url_segment = itemgetter("width", "height", "fileIdentifyingUrlPathSegment")(img)
                     profile[f"img_{w}_{h}"] = url_segment
 
             profile["profile_id"] = get_id_from_urn(profile["miniProfile"]["entityUrn"])
@@ -789,9 +727,7 @@ class Linkedin(object):
         for item in experience:
             if "company" in item and "miniCompany" in item["company"]:
                 if "logo" in item["company"]["miniCompany"]:
-                    logo = item["company"]["miniCompany"]["logo"].get(
-                        "com.linkedin.common.VectorImage"
-                    )
+                    logo = item["company"]["miniCompany"]["logo"].get("com.linkedin.common.VectorImage")
                     if logo:
                         item["companyLogoUrl"] = logo["rootUrl"]
                 del item["company"]["miniCompany"]
@@ -803,9 +739,7 @@ class Linkedin(object):
         for item in education:
             if "school" in item:
                 if "logo" in item["school"]:
-                    item["school"]["logoUrl"] = item["school"]["logo"][
-                        "com.linkedin.common.VectorImage"
-                    ]["rootUrl"]
+                    item["school"]["logoUrl"] = item["school"]["logo"]["com.linkedin.common.VectorImage"]["rootUrl"]
                     del item["school"]["logo"]
 
         profile["education"] = education
@@ -882,12 +816,8 @@ class Linkedin(object):
         :rtype: list
         """
         profile_urn = f"urn:li:fsd_profile:{urn_id}"
-        variables = ",".join(
-            [f"profileUrn:{quote(profile_urn)}", "sectionType:experience"]
-        )
-        query_id = (
-            "voyagerIdentityDashProfileComponents.7af5d6f176f11583b382e37e5639e69e"
-        )
+        variables = ",".join([f"profileUrn:{quote(profile_urn)}", "sectionType:experience"])
+        query_id = "voyagerIdentityDashProfileComponents.7af5d6f176f11583b382e37e5639e69e"
 
         res = self._fetch(
             f"/graphql?variables=({variables})&queryId={query_id}&includeWebMetadata=true",
@@ -907,9 +837,7 @@ class Linkedin(object):
             company = subtitle["text"].split(" · ")[0] if subtitle else None
             employment_type_parts = subtitle["text"].split(" · ") if subtitle else None
             employment_type = (
-                employment_type_parts[1]
-                if employment_type_parts and len(employment_type_parts) > 1
-                else None
+                employment_type_parts[1] if employment_type_parts and len(employment_type_parts) > 1 else None
             )
             metadata = component.get("metadata", {}) or {}
             location = metadata.get("text")
@@ -918,33 +846,21 @@ class Linkedin(object):
             duration_parts = duration_text.split(" · ")
             date_parts = duration_parts[0].split(" - ")
 
-            duration = (
-                duration_parts[1]
-                if duration_parts and len(duration_parts) > 1
-                else None
-            )
+            duration = duration_parts[1] if duration_parts and len(duration_parts) > 1 else None
             start_date = date_parts[0] if date_parts else None
             end_date = date_parts[1] if date_parts and len(date_parts) > 1 else None
 
             sub_components = component["subComponents"]
             fixed_list_component = (
-                sub_components["components"][0]["components"]["fixedListComponent"]
-                if sub_components
-                else None
+                sub_components["components"][0]["components"]["fixedListComponent"] if sub_components else None
             )
 
             fixed_list_text_component = (
-                fixed_list_component["components"][0]["components"]["textComponent"]
-                if fixed_list_component
-                else None
+                fixed_list_component["components"][0]["components"]["textComponent"] if fixed_list_component else None
             )
 
             # Extract additional description
-            description = (
-                fixed_list_text_component["text"]["text"]
-                if fixed_list_text_component
-                else None
-            )
+            description = fixed_list_text_component["text"]["text"] if fixed_list_text_component else None
 
             # Create a dictionary with the extracted information
             parsed_data = {
@@ -962,20 +878,11 @@ class Linkedin(object):
 
         def get_grouped_item_id(item):
             sub_components = item["components"]["entityComponent"]["subComponents"]
-            sub_components_components = (
-                sub_components["components"][0]["components"]
-                if sub_components
-                else None
-            )
+            sub_components_components = sub_components["components"][0]["components"] if sub_components else None
             paged_list_component_id = (
-                sub_components_components.get("*pagedListComponent", "")
-                if sub_components_components
-                else None
+                sub_components_components.get("*pagedListComponent", "") if sub_components_components else None
             )
-            if (
-                paged_list_component_id
-                and "fsd_profilePositionGroup" in paged_list_component_id
-            ):
+            if paged_list_component_id and "fsd_profilePositionGroup" in paged_list_component_id:
                 pattern = r"urn:li:fsd_profilePositionGroup:\([^)]+\)"
                 match = re.search(pattern, paged_list_component_id)
                 return match.group(0) if match else None
@@ -992,9 +899,7 @@ class Linkedin(object):
         # Therefore, we want to use the index with the most items to ensure we process all experiences.
         max_items_index = max(
             range(len(data["included"])),
-            key=lambda i: len(
-                data["included"][i].get("components", {}).get("elements", [])
-            ),
+            key=lambda i: len(data["included"][i].get("components", {}).get("elements", [])),
         )
 
         for item in data["included"][max_items_index]["components"]["elements"]:
@@ -1006,16 +911,10 @@ class Linkedin(object):
                 # use the company and location from the main item
                 company = component["titleV2"]["text"]["text"]
 
-                location = (
-                    component["caption"]["text"] if component["caption"] else None
-                )
+                location = component["caption"]["text"] if component["caption"] else None
 
                 # find the group
-                group = [
-                    i
-                    for i in data["included"]
-                    if grouped_item_id in i.get("entityUrn", "")
-                ]
+                group = [i for i in data["included"] if grouped_item_id in i.get("entityUrn", "")]
                 if not group:
                     continue
                 for group_item in group[0]["components"]["elements"]:
@@ -1067,10 +966,7 @@ class Linkedin(object):
         if (
             len(data["elements"]) == 0
             or (max_results is not None and len(results) >= max_results)
-            or (
-                max_results is not None
-                and len(results) / max_results >= Linkedin._MAX_REPEATED_REQUESTS
-            )
+            or (max_results is not None and len(results) / max_results >= Linkedin._MAX_REPEATED_REQUESTS)
         ):
             return results
 
@@ -1084,9 +980,7 @@ class Linkedin(object):
             max_results=max_results,
         )
 
-    def get_profile_updates(
-        self, public_id=None, urn_id=None, max_results=None, results=None
-    ):
+    def get_profile_updates(self, public_id=None, urn_id=None, max_results=None, results=None):
         """Fetch profile updates (newsfeed activity) for a given LinkedIn profile.
 
         :param public_id: LinkedIn public ID for a profile
@@ -1116,10 +1010,7 @@ class Linkedin(object):
         if (
             len(data["elements"]) == 0
             or (max_results is not None and len(results) >= max_results)
-            or (
-                max_results is not None
-                and len(results) / max_results >= Linkedin._MAX_REPEATED_REQUESTS
-            )
+            or (max_results is not None and len(results) / max_results >= Linkedin._MAX_REPEATED_REQUESTS)
         ):
             return results
 
@@ -1143,13 +1034,9 @@ class Linkedin(object):
 
         data = res.json()
 
-        return data["elements"][0]["value"][
-            "com.linkedin.voyager.identity.me.wvmpOverview.WvmpViewersCard"
-        ]["insightCards"][0]["value"][
-            "com.linkedin.voyager.identity.me.wvmpOverview.WvmpSummaryInsightCard"
-        ][
-            "numViews"
-        ]
+        return data["elements"][0]["value"]["com.linkedin.voyager.identity.me.wvmpOverview.WvmpViewersCard"][
+            "insightCards"
+        ][0]["value"]["com.linkedin.voyager.identity.me.wvmpOverview.WvmpSummaryInsightCard"]["numViews"]
 
     def get_school(self, public_id):
         """Fetch data about a given LinkedIn school.
@@ -1218,9 +1105,7 @@ class Linkedin(object):
         """
         payload = json.dumps({"patch": {"$set": {"following": following}}})
 
-        res = self._post(
-            f"/feed/dash/followingStates/{following_state_urn}", data=payload
-        )
+        res = self._post(f"/feed/dash/followingStates/{following_state_urn}", data=payload)
 
         return res.status_code != 201
 
@@ -1348,9 +1233,7 @@ class Linkedin(object):
         """
         payload = json.dumps({"patch": {"$set": {"read": True}}})
 
-        res = self._post(
-            f"/messaging/conversations/{conversation_urn_id}", data=payload
-        )
+        res = self._post(f"/messaging/conversations/{conversation_urn_id}", data=payload)
 
         return res.status_code != 200
 
@@ -1398,9 +1281,7 @@ class Linkedin(object):
         response_payload = res.json()
         return [element["invitation"] for element in response_payload["elements"]]
 
-    def reply_invitation(
-        self, invitation_entity_urn: str, invitation_shared_secret: str, action="accept"
-    ):
+    def reply_invitation(self, invitation_entity_urn: str, invitation_shared_secret: str, action="accept"):
         """Respond to a connection invitation. By default, accept the invitation.
 
         :param invitation_entity_urn: URN ID of the invitation
@@ -1451,17 +1332,13 @@ class Linkedin(object):
             return False
 
         if not profile_urn:
-            profile_urn_string = self.get_profile(public_id=profile_public_id)[
-                "profile_urn"
-            ]
+            profile_urn_string = self.get_profile(public_id=profile_public_id)["profile_urn"]
             # Returns string of the form 'urn:li:fs_miniProfile:ACoAACX1hoMBvWqTY21JGe0z91mnmjmLy9Wen4w'
             # We extract the last part of the string
             profile_urn = profile_urn_string.split(":")[-1]
 
         payload = {
-            "invitee": {
-                "inviteeUnion": {"memberProfile": f"urn:li:fsd_profile:{profile_urn}"}
-            },
+            "invitee": {"inviteeUnion": {"memberProfile": f"urn:li:fsd_profile:{profile_urn}"}},
             "customMessage": message,
         }
         params = {
@@ -1598,9 +1475,7 @@ class Linkedin(object):
 
         return err
 
-    def _get_list_feed_posts_and_list_feed_urns(
-        self, limit=-1, offset=0, exclude_promoted_posts=True
-    ):
+    def _get_list_feed_posts_and_list_feed_urns(self, limit=-1, offset=0, exclude_promoted_posts=True):
         """Get a list of URNs from feed sorted by 'Recent' and a list of yet
         unsorted posts, each one of them containing a dict per post.
 
@@ -1655,9 +1530,7 @@ class Linkedin(object):
             l_raw_posts = res.json().get("included", {})
             l_raw_urns = res.json().get("data", {}).get("*elements", [])
 
-            l_new_posts = parse_list_raw_posts(
-                l_raw_posts, self.client.LINKEDIN_BASE_URL
-            )
+            l_new_posts = parse_list_raw_posts(l_raw_posts, self.client.LINKEDIN_BASE_URL)
             l_posts.extend(l_new_posts)
 
             l_urns.extend(parse_list_raw_urns(l_raw_urns))
@@ -1688,9 +1561,7 @@ class Linkedin(object):
         :return: List of URNs
         :rtype: list
         """
-        l_posts, l_urns = self._get_list_feed_posts_and_list_feed_urns(
-            limit, offset, exclude_promoted_posts
-        )
+        l_posts, l_urns = self._get_list_feed_posts_and_list_feed_urns(limit, offset, exclude_promoted_posts)
         return get_list_posts_sorted_without_promoted(l_urns, l_posts)
 
     def get_job(self, job_id: str) -> Dict:
@@ -1747,10 +1618,7 @@ class Linkedin(object):
         if (
             len(data["elements"]) == 0
             or (max_results is not None and len(results) >= max_results)
-            or (
-                max_results is not None
-                and len(results) / max_results >= Linkedin._MAX_REPEATED_REQUESTS
-            )
+            or (max_results is not None and len(results) / max_results >= Linkedin._MAX_REPEATED_REQUESTS)
         ):
             return results
 
